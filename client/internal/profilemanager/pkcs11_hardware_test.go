@@ -87,3 +87,18 @@ func TestPKCS11HardwareHandshake(t *testing.T) {
 	}
 	t.Logf("passed the gate: HTTP %d (403 would be a refusal)", resp.StatusCode)
 }
+
+// Discovery is what removes the last thing anyone had to write down. It has to
+// find the driver on a machine where the token actually works.
+func TestPKCS11HardwareDiscovery(t *testing.T) {
+	candidates := DiscoverModules()
+	if len(candidates) == 0 {
+		t.Fatalf("no PKCS#11 driver discovered. Looked in: %v", SearchedModulePaths())
+	}
+	for _, candidate := range candidates {
+		t.Logf("driver %s sees %d token(s)", candidate.Path, len(candidate.Tokens))
+		for _, token := range candidate.Tokens {
+			t.Logf("    %s", token)
+		}
+	}
+}

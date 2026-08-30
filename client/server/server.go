@@ -2599,18 +2599,18 @@ func (s *Server) authorizeAndPrepareLogin(callerCtx context.Context, msg *proto.
 		return nil, nil, fmt.Errorf("active profile state: %w", err)
 	}
 
-	if err := persistLoginOverrides(activeProf, msg.ManagementUrl, msg.OptionalPreSharedKey); err != nil {
+	if err := persistLoginOverrides(activeProf, msg.ManagementUrl, msg.OptionalPreSharedKey, msg.GetPkcs11Module()); err != nil {
 		return nil, nil, fmt.Errorf("persist login overrides: %w", err)
 	}
 
 	return ctx, activeProf, nil
 }
 
-func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {
+func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string, pkcs11Module string) error {
 	if preSharedKey != nil && *preSharedKey == "" {
 		preSharedKey = nil
 	}
-	if managementURL == "" && preSharedKey == nil {
+	if managementURL == "" && preSharedKey == nil && pkcs11Module == "" {
 		return nil
 	}
 
@@ -2620,9 +2620,10 @@ func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, manage
 	}
 
 	input := profilemanager.ConfigInput{
-		ConfigPath:    cfgPath,
-		ManagementURL: managementURL,
-		PreSharedKey:  preSharedKey,
+		ConfigPath:       cfgPath,
+		ManagementURL:    managementURL,
+		PreSharedKey:     preSharedKey,
+		PKCS11ModulePath: pkcs11Module,
 	}
 	if _, err := profilemanager.UpdateOrCreateConfig(input); err != nil {
 		return fmt.Errorf("update config: %w", err)

@@ -354,8 +354,12 @@ type LoginRequest struct {
 	// in. Chosen by the caller at login rather than stored, so that replacing a
 	// token does not mean editing a config file.
 	Pkcs11TokenSerial *string `protobuf:"bytes,44,opt,name=pkcs11TokenSerial,proto3,oneof" json:"pkcs11TokenSerial,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// pkcs11Module is the PKCS#11 driver to take the client certificate from.
+	// Sent when the caller discovered it, so the profile records where the driver
+	// actually is instead of requiring someone to write the path down first.
+	Pkcs11Module  *string `protobuf:"bytes,45,opt,name=pkcs11Module,proto3,oneof" json:"pkcs11Module,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LoginRequest) Reset() {
@@ -693,6 +697,13 @@ func (x *LoginRequest) GetPkcs11Pin() string {
 func (x *LoginRequest) GetPkcs11TokenSerial() string {
 	if x != nil && x.Pkcs11TokenSerial != nil {
 		return *x.Pkcs11TokenSerial
+	}
+	return ""
+}
+
+func (x *LoginRequest) GetPkcs11Module() string {
+	if x != nil && x.Pkcs11Module != nil {
+		return *x.Pkcs11Module
 	}
 	return ""
 }
@@ -7099,7 +7110,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\x8c\x15\n" +
+	"\fEmptyRequest\"\xc6\x15\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -7148,7 +7159,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x14enable_local_metrics\x18) \x01(\bH\x1cR\x12enableLocalMetrics\x88\x01\x01\x127\n" +
 	"\x15local_metrics_address\x18* \x01(\tH\x1dR\x13localMetricsAddress\x88\x01\x01\x12!\n" +
 	"\tpkcs11Pin\x18+ \x01(\tH\x1eR\tpkcs11Pin\x88\x01\x01\x121\n" +
-	"\x11pkcs11TokenSerial\x18, \x01(\tH\x1fR\x11pkcs11TokenSerial\x88\x01\x01B\x13\n" +
+	"\x11pkcs11TokenSerial\x18, \x01(\tH\x1fR\x11pkcs11TokenSerial\x88\x01\x01\x12'\n" +
+	"\fpkcs11Module\x18- \x01(\tH R\fpkcs11Module\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -7181,7 +7193,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x16_local_metrics_addressB\f\n" +
 	"\n" +
 	"_pkcs11PinB\x14\n" +
-	"\x12_pkcs11TokenSerial\"\xb5\x01\n" +
+	"\x12_pkcs11TokenSerialB\x0f\n" +
+	"\r_pkcs11Module\"\xb5\x01\n" +
 	"\rLoginResponse\x12$\n" +
 	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
 	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +

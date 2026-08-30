@@ -85,6 +85,8 @@ func init() {
 			`or --extra-dns-labels ""`,
 	)
 
+	upCmd.PersistentFlags().BoolVar(&pkcs11Enabled, pkcs11Flag, false, pkcs11Desc)
+	upCmd.PersistentFlags().StringVar(&pkcs11ModulePath, pkcs11ModuleFlag, "", pkcs11ModuleDesc)
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	upCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
@@ -362,7 +364,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	// A setup-key login talks to Management directly and never reaches the IdP,
 	// so it needs no client certificate and must not ask for a PIN.
 	if providedSetupKey == "" {
-		pin, tokenSerial, err := collectPKCS11(ctx, cmd, client, profileID, username)
+		pin, tokenSerial, module, err := collectPKCS11(ctx, cmd, client, profileID, username)
 		if err != nil {
 			return err
 		}
@@ -371,6 +373,9 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 		}
 		if tokenSerial != "" {
 			loginRequest.Pkcs11TokenSerial = &tokenSerial
+		}
+		if module != "" {
+			loginRequest.Pkcs11Module = &module
 		}
 	}
 

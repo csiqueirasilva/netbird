@@ -30,6 +30,8 @@ import (
 var extendSessionFlag bool
 
 func init() {
+	loginCmd.PersistentFlags().BoolVar(&pkcs11Enabled, pkcs11Flag, false, pkcs11Desc)
+	loginCmd.PersistentFlags().StringVar(&pkcs11ModulePath, pkcs11ModuleFlag, "", pkcs11ModuleDesc)
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
@@ -141,7 +143,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 	// A setup-key login talks to Management directly and never reaches the IdP,
 	// so it needs no client certificate and must not ask for a PIN.
 	if providedSetupKey == "" {
-		pin, tokenSerial, err := collectPKCS11(ctx, cmd, client, handle, username)
+		pin, tokenSerial, module, err := collectPKCS11(ctx, cmd, client, handle, username)
 		if err != nil {
 			return err
 		}
@@ -150,6 +152,9 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 		}
 		if tokenSerial != "" {
 			loginRequest.Pkcs11TokenSerial = &tokenSerial
+		}
+		if module != "" {
+			loginRequest.Pkcs11Module = &module
 		}
 	}
 
@@ -401,8 +406,13 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profileman
 		// No daemon here, so the config was read without a PIN and its client
 		// certificate is still unloaded. Unlock it before the SSO flow, which is
 		// the only thing that presents it.
-		if config.PKCS11.IsSet() {
-			tokenSerial, err := chooseToken(cmd, config.PKCS11.ModulePath)
+		module, err := resolvePKCS11Module(cmd, config.PKCS11.ModulePath)
+		if err != nil {
+			return err
+		}
+		if module != "" {
+			config.PKCS11.ModulePath = module
+			tokenSerial, err := chooseToken(cmd, module)
 			if err != nil {
 				return err
 			}

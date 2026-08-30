@@ -106,6 +106,12 @@ type ConfigInput struct {
 
 	LocalMetricsEnabled *bool
 	LocalMetricsAddress *string
+
+	// PKCS11ModulePath sets the PKCS#11 driver this profile takes its client
+	// certificate from. It is the only part of the PKCS#11 setup that is
+	// configured: which token, which certificate and which chain are all
+	// discovered at login.
+	PKCS11ModulePath string
 }
 
 // Config Configuration type
@@ -647,6 +653,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 
 	if input.ClientCertPath != "" {
 		config.ClientCertPath = input.ClientCertPath
+		updated = true
+	}
+
+	if input.PKCS11ModulePath != "" && input.PKCS11ModulePath != config.PKCS11.ModulePath {
+		log.Infof("setting PKCS#11 module to %s", input.PKCS11ModulePath)
+		config.PKCS11.ModulePath = input.PKCS11ModulePath
 		updated = true
 	}
 

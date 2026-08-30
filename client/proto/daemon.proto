@@ -256,6 +256,11 @@ message LoginRequest {
   // in. Chosen by the caller at login rather than stored, so that replacing a
   // token does not mean editing a config file.
   optional string pkcs11TokenSerial = 44;
+
+  // pkcs11Module is the PKCS#11 driver to take the client certificate from.
+  // Sent when the caller discovered it, so the profile records where the driver
+  // actually is instead of requiring someone to write the path down first.
+  optional string pkcs11Module = 45;
 }
 
 message LoginResponse {

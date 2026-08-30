@@ -81,6 +81,15 @@ func (t TokenInfo) String() string {
 // serial number in a config file. It needs no PIN: slot and token information
 // are public, and nothing here opens a session.
 func ListTokens(modulePath string) ([]TokenInfo, error) {
+	return listTokens(modulePath, tokenOpenAttempts)
+}
+
+// listTokens takes the attempt count because the two callers want different
+// answers to an empty slot list. Asking about a token that is meant to be there
+// should wait out the module's asynchronous start-up; probing a driver to see
+// whether it is the right one should not, since "no token" is a perfectly good
+// answer and there may be several drivers to get through.
+func listTokens(modulePath string, attempts int) ([]TokenInfo, error) {
 	if modulePath == "" {
 		return nil, fmt.Errorf("pkcs11: no module path configured")
 	}
@@ -100,7 +109,7 @@ func ListTokens(modulePath string) ([]TokenInfo, error) {
 		}
 	}()
 
-	slots, err := listSlotsWithRetry(module)
+	slots, err := listSlotsWithRetry(module, attempts)
 	if err != nil {
 		return nil, err
 	}
@@ -134,9 +143,9 @@ const (
 	tokenOpenBackoff  = 500 * time.Millisecond
 )
 
-func listSlotsWithRetry(module *pkcs11.Ctx) ([]uint, error) {
+func listSlotsWithRetry(module *pkcs11.Ctx, attempts int) ([]uint, error) {
 	var err error
-	for i := 0; i < tokenOpenAttempts; i++ {
+	for i := 0; i < attempts; i++ {
 		var slots []uint
 		if slots, err = module.GetSlotList(true); err == nil && len(slots) > 0 {
 			return slots, nil
