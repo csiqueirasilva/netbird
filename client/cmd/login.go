@@ -141,12 +141,15 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 	// A setup-key login talks to Management directly and never reaches the IdP,
 	// so it needs no client certificate and must not ask for a PIN.
 	if providedSetupKey == "" {
-		pin, err := collectPKCS11Pin(ctx, cmd, client, handle, username)
+		pin, tokenSerial, err := collectPKCS11(ctx, cmd, client, handle, username)
 		if err != nil {
 			return err
 		}
 		if pin != "" {
 			loginRequest.Pkcs11Pin = &pin
+		}
+		if tokenSerial != "" {
+			loginRequest.Pkcs11TokenSerial = &tokenSerial
 		}
 	}
 
@@ -399,11 +402,15 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profileman
 		// certificate is still unloaded. Unlock it before the SSO flow, which is
 		// the only thing that presents it.
 		if config.PKCS11.IsSet() {
+			tokenSerial, err := chooseToken(cmd, config.PKCS11.ModulePath)
+			if err != nil {
+				return err
+			}
 			pin, err := readPKCS11Pin(cmd)
 			if err != nil {
 				return err
 			}
-			if err := config.UnlockPKCS11(pin); err != nil {
+			if err := config.UnlockPKCS11(pin, tokenSerial); err != nil {
 				return fmt.Errorf("unlock client certificate: %v", err)
 			}
 		}

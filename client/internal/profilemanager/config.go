@@ -191,7 +191,10 @@ type Config struct {
 	// Path to corresponding private key of ClientCertPath
 	ClientCertKeyPath string
 
-	ClientCertKeyPair *tls.Certificate `json:"-"`
+	// ClientCertKeyPairs are the client certificates available for mTLS, in no
+	// particular order: the TLS handshake picks whichever matches the CAs the
+	// server says it accepts.
+	ClientCertKeyPairs []tls.Certificate `json:"-"`
 
 	// LazyConnection is the MDM-managed lazy-connection override ("on"/"off"/"").
 	// Runtime-only: re-derived from MDM policy on each load, never persisted.
@@ -659,19 +662,19 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			break
 		}
 		// Key stays in the token; only signatures leave it.
-		cert, err := LoadPKCS11Certificate(config.PKCS11)
+		certificates, err := LoadPKCS11Certificates(config.PKCS11)
 		if err != nil {
-			log.Error("Failed to load mTLS certificate from PKCS#11 token: ", err)
+			log.Error("Failed to load mTLS certificates from PKCS#11 token: ", err)
 		} else {
-			config.ClientCertKeyPair = cert
-			log.Info("Loaded client mTLS certificate from PKCS#11 token")
+			config.ClientCertKeyPairs = certificates
+			log.Infof("Loaded %d client mTLS certificate(s) from PKCS#11 token", len(certificates))
 		}
 	case config.ClientCertPath != "" && config.ClientCertKeyPath != "":
 		cert, err := tls.LoadX509KeyPair(config.ClientCertPath, config.ClientCertKeyPath)
 		if err != nil {
 			log.Error("Failed to load mTLS cert/key pair: ", err)
 		} else {
-			config.ClientCertKeyPair = &cert
+			config.ClientCertKeyPairs = []tls.Certificate{cert}
 			log.Info("Loaded client mTLS cert/key pair")
 		}
 	}

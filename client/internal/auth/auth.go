@@ -261,7 +261,7 @@ func (a *Auth) getPKCEFlow(client *mgm.GrpcClient) (*PKCEAuthorizationFlow, erro
 		Scope:                 protoConfig.GetScope(),
 		RedirectURLs:          protoConfig.GetRedirectURLs(),
 		UseIDToken:            protoConfig.GetUseIDToken(),
-		ClientCertPair:        a.config.ClientCertKeyPair,
+		ClientCertPairs:       a.config.ClientCertKeyPairs,
 		DisablePromptLogin:    protoConfig.GetDisablePromptLogin(),
 		LoginFlag:             common.LoginFlag(protoConfig.GetLoginFlag()),
 	}

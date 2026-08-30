@@ -251,6 +251,11 @@ message LoginRequest {
   // persisted: the profile already stores the WireGuard private key, and
   // writing the PIN beside it would collapse the token's two factors into one.
   optional string pkcs11Pin = 43;
+
+  // pkcs11TokenSerial names the token to unlock, when more than one is plugged
+  // in. Chosen by the caller at login rather than stored, so that replacing a
+  // token does not mean editing a config file.
+  optional string pkcs11TokenSerial = 44;
 }
 
 message LoginResponse {
@@ -378,11 +383,13 @@ message GetConfigResponse {
   // by MDM" indicator.
   repeated string mDMManagedFields = 28;
 
-  // requiresPkcs11Pin reports that the active profile takes its client
-  // certificate from a hardware token, so a login has to carry a PIN. The
-  // daemon has no terminal to ask on; this lets the caller that does ask
-  // before logging in rather than after a failure.
-  bool requiresPkcs11Pin = 29;
+  reserved 29;
+
+  // pkcs11Module is the PKCS#11 driver the active profile takes its client
+  // certificate from, empty when it uses none. The daemon has no terminal to
+  // ask on, so the caller that does uses this to enumerate the tokens plugged
+  // in and collect a PIN before logging in, rather than after a failure.
+  string pkcs11Module = 30;
 }
 
 // PeerState contains the latest state of a peer

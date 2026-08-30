@@ -694,7 +694,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	// on the config stored below, because the code exchange that actually uses
 	// the certificate happens later, in WaitSSOLogin.
 	if msg.SetupKey == "" && config.PKCS11.IsSet() {
-		if err := config.UnlockPKCS11(msg.GetPkcs11Pin()); err != nil {
+		if err := config.UnlockPKCS11(msg.GetPkcs11Pin(), msg.GetPkcs11TokenSerial()); err != nil {
 			state.Set(internal.StatusLoginFailed)
 			return nil, gstatus.Errorf(codes.InvalidArgument, "unlock client certificate: %v", err)
 		}
@@ -2168,7 +2168,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		DisableSSHAuth:                disableSSHAuth,
 		SshJWTCacheTTL:                sshJWTCacheTTL,
 		MDMManagedFields:              cfg.Policy().ManagedKeys(),
-		RequiresPkcs11Pin:             cfg.PKCS11.IsSet(),
+		Pkcs11Module:                  cfg.PKCS11.ModulePath,
 	}, nil
 }
 

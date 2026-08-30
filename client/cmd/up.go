@@ -362,12 +362,15 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	// A setup-key login talks to Management directly and never reaches the IdP,
 	// so it needs no client certificate and must not ask for a PIN.
 	if providedSetupKey == "" {
-		pin, err := collectPKCS11Pin(ctx, cmd, client, profileID, username)
+		pin, tokenSerial, err := collectPKCS11(ctx, cmd, client, profileID, username)
 		if err != nil {
 			return err
 		}
 		if pin != "" {
 			loginRequest.Pkcs11Pin = &pin
+		}
+		if tokenSerial != "" {
+			loginRequest.Pkcs11TokenSerial = &tokenSerial
 		}
 	}
 
