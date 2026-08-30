@@ -6,11 +6,16 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/eclipse-keypont/crypto11"
 	log "github.com/sirupsen/logrus"
 )
+
+// pinEnvVar supplies the token PIN when the caller has no other channel.
+const pinEnvVar = "NB_PKCS11_PIN"
 
 // PKCS11Config describes a client certificate whose private key lives in a
 // hardware token instead of a file.
@@ -78,9 +83,17 @@ func LoadPKCS11Certificate(cfg PKCS11Config) (*tls.Certificate, error) {
 		return nil, fmt.Errorf("pkcs11: incomplete configuration: module path and token label or serial are required")
 	}
 
+	pin := cfg.Pin
+	if pin == "" {
+		// Transient by design: the PIN must not be persisted, and there is no
+		// interactive collection yet. An environment variable is the smallest
+		// mechanism that keeps it out of the profile file.
+		pin = os.Getenv(pinEnvVar)
+	}
+
 	c11 := &crypto11.Config{
 		Path: cfg.ModulePath,
-		Pin:  cfg.Pin,
+		Pin:  pin,
 	}
 	// Serial wins over label: labels are frequently duplicated across tokens
 	// from the same vendor, serials are not.
@@ -90,7 +103,7 @@ func LoadPKCS11Certificate(cfg PKCS11Config) (*tls.Certificate, error) {
 		c11.TokenLabel = cfg.TokenLabel
 	}
 
-	ctx, err := crypto11.Configure(c11)
+	ctx, err := openTokenWithRetry(c11)
 	if err != nil {
 		return nil, fmt.Errorf("pkcs11: could not open token via %s: %w", cfg.ModulePath, err)
 	}
@@ -122,6 +135,46 @@ func LoadPKCS11Certificate(cfg PKCS11Config) (*tls.Certificate, error) {
 		PrivateKey:  &pkcs11Signer{inner: signer, label: cfg.ObjectLabel},
 		Leaf:        leaf,
 	}, nil
+}
+
+// Some modules populate their slot list asynchronously: SafeNet's eTPKCS11
+// spawns a reader-monitor thread during C_Initialize and returns before it has
+// finished, so the first C_GetSlotList either reports no slots at all or fails
+// with CKR_BUFFER_TOO_SMALL -- the reader appearing between the two calls the
+// binding makes to size the buffer and then fill it. A single-shot Configure
+// loses that race in whichever process happens to reach it first; the token is
+// there, it just has not been announced yet.
+const (
+	tokenOpenAttempts = 6
+	tokenOpenBackoff  = 500 * time.Millisecond
+)
+
+func openTokenWithRetry(c11 *crypto11.Config) (*crypto11.Context, error) {
+	var err error
+	for i := 0; i < tokenOpenAttempts; i++ {
+		var ctx *crypto11.Context
+		if ctx, err = crypto11.Configure(c11); err == nil {
+			return ctx, nil
+		}
+		if !tokenNotAnnouncedYet(err) {
+			return nil, err
+		}
+		time.Sleep(tokenOpenBackoff)
+	}
+	return nil, err
+}
+
+// tokenNotAnnouncedYet reports whether the failure happened while looking for
+// the token, before Configure logged in.
+//
+// This distinction is the whole point of the function: retrying past the login
+// would spend PIN attempts, and these tokens lock themselves after a handful of
+// wrong ones. Only the two failures that precede C_Login are retried, and both
+// are matched on crypto11's own wrapper text because it exports neither.
+func tokenNotAnnouncedYet(err error) bool {
+	texto := err.Error()
+	return strings.Contains(texto, "could not find PKCS#11 token") ||
+		strings.Contains(texto, "failed to list PKCS#11 slots")
 }
 
 func findSigner(ctx *crypto11.Context, label string) (crypto.Signer, error) {
