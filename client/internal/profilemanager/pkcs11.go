@@ -32,8 +32,16 @@ type PKCS11Config struct {
 	TokenSerial string
 	// ObjectLabel is the label of the key pair and certificate to use.
 	ObjectLabel string
-	// Pin unlocks the token. Empty means the caller supplies it another way.
-	Pin string
+	// ChainLabels are labels of intermediate certificates to send after the
+	// leaf, in order. A TLS client must present the full chain up to (but not
+	// including) the trust anchor: browsers get away with sending only the leaf
+	// because the OS keeps intermediates, a Go client keeps nothing.
+	ChainLabels []string
+	// Pin unlocks the token. Never persisted: the config file already holds the
+	// WireGuard private key, and writing the PIN beside it collapses two factors
+	// into one -- the token stops being "something you have" the moment the PIN
+	// is "something on the same disk". The caller supplies it per invocation.
+	Pin string `json:"-"`
 }
 
 // IsSet reports whether enough was configured to attempt a PKCS#11 login.
@@ -97,10 +105,20 @@ func LoadPKCS11Certificate(cfg PKCS11Config) (*tls.Certificate, error) {
 		return nil, err
 	}
 
-	log.Infof("pkcs11: using client certificate %q from token (subject %q)", cfg.ObjectLabel, leaf.Subject)
+	cadeia := [][]byte{leaf.Raw}
+	for _, rotulo := range cfg.ChainLabels {
+		intermediaria, err := findCertificate(ctx, rotulo)
+		if err != nil {
+			return nil, fmt.Errorf("pkcs11: chain certificate %q: %w", rotulo, err)
+		}
+		cadeia = append(cadeia, intermediaria.Raw)
+	}
+
+	log.Infof("pkcs11: using client certificate %q from token (subject %q, chain of %d)",
+		cfg.ObjectLabel, leaf.Subject, len(cadeia))
 
 	return &tls.Certificate{
-		Certificate: [][]byte{leaf.Raw},
+		Certificate: cadeia,
 		PrivateKey:  &pkcs11Signer{inner: signer, label: cfg.ObjectLabel},
 		Leaf:        leaf,
 	}, nil
