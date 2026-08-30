@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -55,6 +56,8 @@ type ConnStateNotifier interface {
 }
 
 type GrpcClient struct {
+	// clientCerts are presented when the gRPC endpoint requires mutual TLS.
+	clientCerts           []tls.Certificate
 	key                   wgtypes.Key
 	realClient            proto.ManagementServiceClient
 	ctx                   context.Context
@@ -119,6 +122,12 @@ func MaxRecvMsgSize() int {
 // Option configures optional GrpcClient behavior.
 type Option func(*GrpcClient)
 
+// WithClientCertificates makes the connection present client certificates, for
+// a deployment that puts the gRPC endpoints behind mutual TLS.
+func WithClientCertificates(certs []tls.Certificate) Option {
+	return func(c *GrpcClient) { c.clientCerts = certs }
+}
+
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events *netevents.Manager) Option {
 	return func(c *GrpcClient) { c.netMgr = events }
@@ -149,7 +158,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 	var conn *grpc.ClientConn
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent, extraOpts...)
+		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent, c.clientCerts, extraOpts...)
 		if err != nil {
 			return fmt.Errorf("create connection: %w", err)
 		}

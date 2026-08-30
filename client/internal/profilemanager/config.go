@@ -49,8 +49,8 @@ type mgmProber interface {
 
 // newMgmProber creates a management client for probing URL reachability.
 // Overridden in tests to avoid real network calls.
-var newMgmProber = func(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool) (mgmProber, error) {
-	return mgm.NewClient(ctx, addr, key, tlsEnabled)
+var newMgmProber = func(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool, clientCerts []tls.Certificate) (mgmProber, error) {
+	return mgm.NewClient(ctx, addr, key, tlsEnabled, mgm.WithClientCertificates(clientCerts))
 }
 
 var DefaultInterfaceBlacklist = []string{
@@ -975,7 +975,7 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 		return config, err
 	}
 
-	client, err := newMgmProber(ctx, newURL.Host, key, mgmTlsEnabled)
+	client, err := newMgmProber(ctx, newURL.Host, key, mgmTlsEnabled, config.ClientCertKeyPairs)
 	if err != nil {
 		log.Infof("couldn't switch to the new Management %s", newURL.String())
 		return config, err
