@@ -245,6 +245,12 @@ message LoginRequest {
 
   optional bool enable_local_metrics = 41;
   optional string local_metrics_address = 42;
+
+  // pkcs11Pin unlocks the hardware token holding the client certificate's
+  // private key. Collected by the caller for this login only and never
+  // persisted: the profile already stores the WireGuard private key, and
+  // writing the PIN beside it would collapse the token's two factors into one.
+  optional string pkcs11Pin = 43;
 }
 
 message LoginResponse {
@@ -371,6 +377,12 @@ message GetConfigResponse {
   // render the corresponding inputs as read-only and display a "managed
   // by MDM" indicator.
   repeated string mDMManagedFields = 28;
+
+  // requiresPkcs11Pin reports that the active profile takes its client
+  // certificate from a hardware token, so a login has to carry a PIN. The
+  // daemon has no terminal to ask on; this lets the caller that does ask
+  // before logging in rather than after a failure.
+  bool requiresPkcs11Pin = 29;
 }
 
 // PeerState contains the latest state of a peer

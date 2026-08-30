@@ -649,6 +649,15 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 
 	switch {
 	case config.PKCS11.IsSet():
+		if !config.PKCS11.HasPin() {
+			// Config gets read on paths that have nobody to ask: daemon
+			// startup, status queries, every profile listing. Leave the
+			// certificate unloaded instead of spending a token round trip and
+			// logging a failure each time -- the login path supplies the PIN
+			// and calls UnlockPKCS11.
+			log.Debug("PKCS#11 client certificate configured but no PIN available yet; deferring load")
+			break
+		}
 		// Key stays in the token; only signatures leave it.
 		cert, err := LoadPKCS11Certificate(config.PKCS11)
 		if err != nil {

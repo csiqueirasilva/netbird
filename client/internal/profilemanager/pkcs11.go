@@ -14,8 +14,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// pinEnvVar supplies the token PIN when the caller has no other channel.
-const pinEnvVar = "NB_PKCS11_PIN"
+// PinEnvVar names the environment variable that carries the token PIN when there
+// is nobody to ask -- an unattended daemon, CI, a scripted enrolment.
+const PinEnvVar = "NB_PKCS11_PIN"
 
 // PKCS11Config describes a client certificate whose private key lives in a
 // hardware token instead of a file.
@@ -54,6 +55,40 @@ func (c PKCS11Config) IsSet() bool {
 	return c.ModulePath != "" && (c.TokenLabel != "" || c.TokenSerial != "")
 }
 
+// HasPin reports whether a PIN is available without asking anyone for it.
+func (c PKCS11Config) HasPin() bool {
+	return c.Pin != "" || os.Getenv(PinEnvVar) != ""
+}
+
+// UnlockPKCS11 loads the client certificate from the hardware token using a PIN
+// supplied for this login only. It is a no-op when the profile does not use a
+// token, so callers do not have to test first.
+//
+// The PIN is copied into a local value and never written back to config.PKCS11:
+// that struct is the one that gets serialized, and a PIN that reaches the
+// profile file next to the WireGuard key stops the token from being a second
+// factor at all.
+func (config *Config) UnlockPKCS11(pin string) error {
+	if !config.PKCS11.IsSet() {
+		return nil
+	}
+
+	cfg := config.PKCS11
+	cfg.Pin = pin
+	if !cfg.HasPin() {
+		// Refuse rather than let C_Login run with an empty PIN: a wrong PIN is
+		// counted by the token, and these lock themselves after a handful.
+		return fmt.Errorf("pkcs11: a PIN is required to unlock the client certificate")
+	}
+
+	cert, err := LoadPKCS11Certificate(cfg)
+	if err != nil {
+		return err
+	}
+	config.ClientCertKeyPair = cert
+	return nil
+}
+
 // pkcs11Signer adapts a crypto11 key pair to crypto.Signer.
 //
 // crypto11 already returns a crypto.Signer, so this only exists to keep the
@@ -88,7 +123,7 @@ func LoadPKCS11Certificate(cfg PKCS11Config) (*tls.Certificate, error) {
 		// Transient by design: the PIN must not be persisted, and there is no
 		// interactive collection yet. An environment variable is the smallest
 		// mechanism that keeps it out of the profile file.
-		pin = os.Getenv(pinEnvVar)
+		pin = os.Getenv(PinEnvVar)
 	}
 
 	c11 := &crypto11.Config{

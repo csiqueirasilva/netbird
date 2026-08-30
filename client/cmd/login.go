@@ -138,6 +138,18 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 		loginRequest.OptionalPreSharedKey = &preSharedKey
 	}
 
+	// A setup-key login talks to Management directly and never reaches the IdP,
+	// so it needs no client certificate and must not ask for a PIN.
+	if providedSetupKey == "" {
+		pin, err := collectPKCS11Pin(ctx, cmd, client, handle, username)
+		if err != nil {
+			return err
+		}
+		if pin != "" {
+			loginRequest.Pkcs11Pin = &pin
+		}
+	}
+
 	var loginErr error
 
 	var loginResp *proto.LoginResponse
@@ -383,6 +395,19 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profileman
 
 	jwtToken := ""
 	if setupKey == "" && needsLogin {
+		// No daemon here, so the config was read without a PIN and its client
+		// certificate is still unloaded. Unlock it before the SSO flow, which is
+		// the only thing that presents it.
+		if config.PKCS11.IsSet() {
+			pin, err := readPKCS11Pin(cmd)
+			if err != nil {
+				return err
+			}
+			if err := config.UnlockPKCS11(pin); err != nil {
+				return fmt.Errorf("unlock client certificate: %v", err)
+			}
+		}
+
 		tokenInfo, err := foregroundGetTokenInfo(ctx, cmd, config, profileID)
 		if err != nil {
 			return fmt.Errorf("interactive sso login failed: %v", err)

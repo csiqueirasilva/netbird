@@ -686,6 +686,20 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
+
+	// A profile whose client certificate lives in a hardware token needs the
+	// PIN before the SSO exchange can present that certificate. Only the SSO
+	// path needs it: a setup-key login talks to Management directly and never
+	// reaches the IdP, so it must not cost a token round trip. The unlock lands
+	// on the config stored below, because the code exchange that actually uses
+	// the certificate happens later, in WaitSSOLogin.
+	if msg.SetupKey == "" && config.PKCS11.IsSet() {
+		if err := config.UnlockPKCS11(msg.GetPkcs11Pin()); err != nil {
+			state.Set(internal.StatusLoginFailed)
+			return nil, gstatus.Errorf(codes.InvalidArgument, "unlock client certificate: %v", err)
+		}
+	}
+
 	s.mutex.Lock()
 	s.config = config
 	s.mutex.Unlock()
@@ -2154,6 +2168,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		DisableSSHAuth:                disableSSHAuth,
 		SshJWTCacheTTL:                sshJWTCacheTTL,
 		MDMManagedFields:              cfg.Policy().ManagedKeys(),
+		RequiresPkcs11Pin:             cfg.PKCS11.IsSet(),
 	}, nil
 }
 

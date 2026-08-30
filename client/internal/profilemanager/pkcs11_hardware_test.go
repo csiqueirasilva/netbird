@@ -18,7 +18,8 @@ import (
 //	go test -tags pkcs11hw ./client/internal/profilemanager/ -run PKCS11Hardware -v
 //
 // Variaveis: NB_PKCS11_MODULE, NB_PKCS11_SERIAL, NB_PKCS11_LABEL, NB_PKCS11_PIN,
-//            NB_PKCS11_URL (endpoint protegido por client cert)
+//
+//	NB_PKCS11_URL (endpoint protegido por client cert)
 func chainLabels() []string {
 	if v := os.Getenv("NB_PKCS11_CHAIN"); v != "" {
 		return strings.Split(v, ",")
