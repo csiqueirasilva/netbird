@@ -8,7 +8,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/ThalesGroup/crypto11"
+	"github.com/eclipse-keypont/crypto11"
 	log "github.com/sirupsen/logrus"
 )
 
