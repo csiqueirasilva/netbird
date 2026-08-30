@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -52,11 +53,13 @@ type ConnStateNotifier interface {
 
 // GrpcClient Wraps the Signal Exchange Service gRpc client
 type GrpcClient struct {
-	key        wgtypes.Key
-	realClient proto.SignalExchangeClient
-	signalConn *grpc.ClientConn
-	ctx        context.Context
-	stream     proto.SignalExchange_ConnectStreamClient
+	// clientCerts are presented when the gRPC endpoint requires mutual TLS.
+	clientCerts []tls.Certificate
+	key         wgtypes.Key
+	realClient  proto.SignalExchangeClient
+	signalConn  *grpc.ClientConn
+	ctx         context.Context
+	stream      proto.SignalExchange_ConnectStreamClient
 	// connectedCh used to notify goroutines waiting for the connection to the Signal stream
 	connectedCh chan struct{}
 	mux         sync.Mutex
@@ -96,6 +99,12 @@ type GrpcClient struct {
 // Option configures optional GrpcClient behavior.
 type Option func(*GrpcClient)
 
+// WithClientCertificates makes the connection present client certificates, for
+// a deployment that puts the gRPC endpoints behind mutual TLS.
+func WithClientCertificates(certs []tls.Certificate) Option {
+	return func(c *GrpcClient) { c.clientCerts = certs }
+}
+
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events *netevents.Manager) Option {
 	return func(c *GrpcClient) { c.netMgr = events }
@@ -123,7 +132,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 	var conn *grpc.ClientConn
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.SignalComponent, extraOpts...)
+		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.SignalComponent, c.clientCerts, extraOpts...)
 		if err != nil {
 			return fmt.Errorf("create connection: %w", err)
 		}

@@ -49,8 +49,8 @@ type mgmProber interface {
 
 // newMgmProber creates a management client for probing URL reachability.
 // Overridden in tests to avoid real network calls.
-var newMgmProber = func(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool) (mgmProber, error) {
-	return mgm.NewClient(ctx, addr, key, tlsEnabled)
+var newMgmProber = func(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool, clientCerts []tls.Certificate) (mgmProber, error) {
+	return mgm.NewClient(ctx, addr, key, tlsEnabled, mgm.WithClientCertificates(clientCerts))
 }
 
 var DefaultInterfaceBlacklist = []string{
@@ -186,7 +186,10 @@ type Config struct {
 	// Path to corresponding private key of ClientCertPath
 	ClientCertKeyPath string
 
-	ClientCertKeyPair *tls.Certificate `json:"-"`
+	// ClientCertKeyPairs are the client certificates available for mTLS, in no
+	// particular order: the TLS handshake picks whichever matches the CAs the
+	// server says it accepts.
+	ClientCertKeyPairs []tls.Certificate `json:"-"`
 
 	// LazyConnection is the MDM-managed lazy-connection override ("on"/"off"/"").
 	// Runtime-only: re-derived from MDM policy on each load, never persisted.
@@ -647,7 +650,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		if err != nil {
 			log.Error("Failed to load mTLS cert/key pair: ", err)
 		} else {
-			config.ClientCertKeyPair = &cert
+			config.ClientCertKeyPairs = []tls.Certificate{cert}
 			log.Info("Loaded client mTLS cert/key pair")
 		}
 	}
@@ -936,7 +939,7 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 		return config, err
 	}
 
-	client, err := newMgmProber(ctx, newURL.Host, key, mgmTlsEnabled)
+	client, err := newMgmProber(ctx, newURL.Host, key, mgmTlsEnabled, config.ClientCertKeyPairs)
 	if err != nil {
 		log.Infof("couldn't switch to the new Management %s", newURL.String())
 		return config, err

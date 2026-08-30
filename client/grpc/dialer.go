@@ -28,7 +28,7 @@ func Backoff(ctx context.Context) backoff.BackOff {
 
 // CreateConnection creates a gRPC client connection with the appropriate transport options.
 // The component parameter specifies the WebSocket proxy component path (e.g., "/management", "/signal").
-func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, component string, extraOpts ...grpc.DialOption) (*grpc.ClientConn, error) {
+func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, component string, clientCerts []tls.Certificate, extraOpts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
 	// for js, the outer websocket layer takes care of tls
 	if tlsEnabled && runtime.GOOS != "js" {
@@ -38,8 +38,12 @@ func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, compone
 			certPool = embeddedroots.Get()
 		}
 
+		// clientCerts is normally empty. When the deployment puts the gRPC
+		// endpoints behind mutual TLS, every candidate is offered and the
+		// handshake presents whichever matches the CAs the server names.
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-			RootCAs: certPool,
+			RootCAs:      certPool,
+			Certificates: clientCerts,
 		}))
 	}
 

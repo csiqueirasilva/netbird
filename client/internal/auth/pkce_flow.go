@@ -52,8 +52,10 @@ type PKCEAuthProviderConfig struct {
 	RedirectURLs []string
 	// UseIDToken indicates if the id token should be used for authentication
 	UseIDToken bool
-	// ClientCertPair is used for mTLS authentication to the IDP
-	ClientCertPair *tls.Certificate
+	// ClientCertPairs are the client certificates offered for mTLS to the IdP.
+	// More than one may be offered: the handshake presents whichever matches the
+	// CAs the IdP says it accepts, the same way a browser chooses.
+	ClientCertPairs []tls.Certificate
 	// DisablePromptLogin makes the PKCE flow to not prompt the user for login
 	DisablePromptLogin bool
 	// LoginFlag is used to configure the PKCE flow login behavior
@@ -224,11 +226,11 @@ func (p *PKCEAuthorizationFlow) startServer(server *http.Server, tokenChan chan<
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		log.Infof("pkce flow: received authorization callback from IdP")
-		cert := p.providerConfig.ClientCertPair
-		if cert != nil {
+		certs := p.providerConfig.ClientCertPairs
+		if len(certs) > 0 {
 			tr := &http.Transport{
 				TLSClientConfig: &tls.Config{
-					Certificates: []tls.Certificate{*cert},
+					Certificates: certs,
 				},
 			}
 			sslClient := &http.Client{Transport: tr}
