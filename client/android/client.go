@@ -4,6 +4,7 @@ package android
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"os"
 	"slices"
@@ -88,8 +89,11 @@ type Client struct {
 
 	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
-	config        *profilemanager.Config
-	cacheDir      string
+	// clientCert is a certificate whose key lives in hardware, installed by
+	// SetClientCertificateSigner. Never persisted: the signer is a live object.
+	clientCert *tls.Certificate
+	config     *profilemanager.Config
+	cacheDir   string
 	// Identifies the running profile for the SSO login hint; see profile_state.go.
 	cfgPath string
 
@@ -178,6 +182,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	if err != nil {
 		return err
 	}
+	c.attachClientCertificate(cfg)
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
@@ -229,6 +234,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	if err != nil {
 		return err
 	}
+	c.attachClientCertificate(cfg)
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
 
@@ -327,6 +333,7 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 		if err != nil {
 			return "", fmt.Errorf("load config: %w", err)
 		}
+		c.attachClientCertificate(cfg)
 		cacheDir = platformFiles.CacheDir()
 	}
 

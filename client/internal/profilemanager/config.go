@@ -88,6 +88,10 @@ type ConfigInput struct {
 	DNSRouteInterval              *time.Duration
 	ClientCertPath                string
 	ClientCertKeyPath             string
+	// CleanClientCertificate removes a configured client certificate. Needed
+	// because the two paths above are only applied when non-empty, so without
+	// it a credential could be configured and never withdrawn.
+	CleanClientCertificate bool
 
 	DisableClientRoutes *bool
 	DisableServerRoutes *bool
@@ -632,6 +636,14 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		disabled := true
 		config.DisableNotifications = &disabled
 		log.Infof("setting notifications to disabled by default")
+		updated = true
+	}
+
+	if input.CleanClientCertificate && (config.ClientCertPath != "" || config.ClientCertKeyPath != "") {
+		log.Info("removing the configured client certificate")
+		config.ClientCertPath = ""
+		config.ClientCertKeyPath = ""
+		config.ClientCertKeyPairs = nil
 		updated = true
 	}
 
