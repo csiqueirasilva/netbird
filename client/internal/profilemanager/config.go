@@ -181,6 +181,11 @@ type Config struct {
 	// DNSRouteInterval is the interval in which the DNS routes are updated
 	DNSRouteInterval time.Duration
 	// Path to a certificate used for mTLS authentication
+	// PKCS11 keeps the client certificate's private key inside a hardware
+	// token. Mutually exclusive with ClientCertPath/ClientCertKeyPath, which
+	// require the key on disk -- impossible for a non-extractable key.
+	PKCS11 PKCS11Config
+
 	ClientCertPath string
 
 	// Path to corresponding private key of ClientCertPath
@@ -642,7 +647,17 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if config.ClientCertPath != "" && config.ClientCertKeyPath != "" {
+	switch {
+	case config.PKCS11.IsSet():
+		// Key stays in the token; only signatures leave it.
+		cert, err := LoadPKCS11Certificate(config.PKCS11)
+		if err != nil {
+			log.Error("Failed to load mTLS certificate from PKCS#11 token: ", err)
+		} else {
+			config.ClientCertKeyPair = cert
+			log.Info("Loaded client mTLS certificate from PKCS#11 token")
+		}
+	case config.ClientCertPath != "" && config.ClientCertKeyPath != "":
 		cert, err := tls.LoadX509KeyPair(config.ClientCertPath, config.ClientCertKeyPath)
 		if err != nil {
 			log.Error("Failed to load mTLS cert/key pair: ", err)
