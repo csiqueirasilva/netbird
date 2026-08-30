@@ -118,9 +118,9 @@ func openTokenWithRetry(c11 *crypto11.Config) (*crypto11.Context, error) {
 // wrong ones. Only the two failures that precede C_Login are retried, and both
 // are matched on crypto11's own wrapper text because it exports neither.
 func tokenNotAnnouncedYet(err error) bool {
-	texto := err.Error()
-	return strings.Contains(texto, "could not find PKCS#11 token") ||
-		strings.Contains(texto, "failed to list PKCS#11 slots")
+	message := err.Error()
+	return strings.Contains(message, "could not find PKCS#11 token") ||
+		strings.Contains(message, "failed to list PKCS#11 slots")
 }
 
 // UnlockPKCS11 loads the client certificates from the hardware token, using a

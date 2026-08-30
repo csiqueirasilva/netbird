@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"os"
@@ -68,6 +69,20 @@ var ErrServiceNotUp = errors.New("service is not up")
 type Server struct {
 	rootCtx   context.Context
 	actCancel context.CancelFunc
+
+	// pkcs11Certs holds the certificates unlocked from the hardware token, for
+	// as long as this daemon runs.
+	//
+	// The PIN arrives with a single login request and is not kept, but the
+	// certificate is needed well past that: the deployment may put Management
+	// and Signal behind mutual TLS, and every later config read would otherwise
+	// come back without it -- the login succeeds, the tunnel is then refused,
+	// and nothing in either message points at the reason.
+	//
+	// Guarded by its own mutex: getConfig runs both with and without the main
+	// one held.
+	pkcs11Mu    sync.RWMutex
+	pkcs11Certs []tls.Certificate
 
 	logFile string
 
@@ -687,17 +702,18 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
 
-	// A profile whose client certificate lives in a hardware token needs the
-	// PIN before the SSO exchange can present that certificate. Only the SSO
-	// path needs it: a setup-key login talks to Management directly and never
-	// reaches the IdP, so it must not cost a token round trip. The unlock lands
-	// on the config stored below, because the code exchange that actually uses
-	// the certificate happens later, in WaitSSOLogin.
-	if msg.SetupKey == "" && config.PKCS11.IsSet() {
+	// A profile whose client certificate lives in a hardware token needs the PIN
+	// to unlock it. This is not conditional on the login method: the certificate
+	// belongs to the transport, and a deployment can require it on the
+	// Management and Signal connections that every peer uses, whether it
+	// enrolled through SSO or with a setup key. The unlock lands on the config
+	// stored below, and is remembered for the reads that follow.
+	if config.PKCS11.IsSet() {
 		if err := config.UnlockPKCS11(msg.GetPkcs11Pin(), msg.GetPkcs11TokenSerial()); err != nil {
 			state.Set(internal.StatusLoginFailed)
 			return nil, gstatus.Errorf(codes.InvalidArgument, "unlock client certificate: %v", err)
 		}
+		s.rememberPKCS11Certificates(config.ClientCertKeyPairs)
 	}
 
 	s.mutex.Lock()
@@ -1436,7 +1452,36 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 		return nil, false, fmt.Errorf("failed to get config: %w", err)
 	}
 
+	s.restorePKCS11Certificates(config)
+
 	return config, configExisted, nil
+}
+
+// restorePKCS11Certificates puts back the certificates unlocked earlier in this
+// session, for a profile that takes them from a token.
+//
+// Reading the config cannot reload them: that needs the PIN, and the PIN was
+// deliberately not kept. Without this the certificate would exist only during
+// the login that unlocked it.
+func (s *Server) restorePKCS11Certificates(config *profilemanager.Config) {
+	if config == nil || !config.PKCS11.IsSet() || len(config.ClientCertKeyPairs) > 0 {
+		return
+	}
+
+	s.pkcs11Mu.RLock()
+	certs := s.pkcs11Certs
+	s.pkcs11Mu.RUnlock()
+
+	if len(certs) > 0 {
+		config.ClientCertKeyPairs = certs
+	}
+}
+
+// rememberPKCS11Certificates keeps what a login unlocked, for the reads that follow.
+func (s *Server) rememberPKCS11Certificates(certs []tls.Certificate) {
+	s.pkcs11Mu.Lock()
+	s.pkcs11Certs = certs
+	s.pkcs11Mu.Unlock()
 }
 
 func (s *Server) canRemoveProfile(id profilemanager.ID) error {

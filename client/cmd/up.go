@@ -361,22 +361,22 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 		loginRequest.Hint = &profileState.Email
 	}
 
-	// A setup-key login talks to Management directly and never reaches the IdP,
-	// so it needs no client certificate and must not ask for a PIN.
-	if providedSetupKey == "" {
-		pin, tokenSerial, module, err := collectPKCS11(ctx, cmd, client, profileID, username)
-		if err != nil {
-			return err
-		}
-		if pin != "" {
-			loginRequest.Pkcs11Pin = &pin
-		}
-		if tokenSerial != "" {
-			loginRequest.Pkcs11TokenSerial = &tokenSerial
-		}
-		if module != "" {
-			loginRequest.Pkcs11Module = &module
-		}
+	// Asked for regardless of a setup key. The certificate is not part of the
+	// login -- it belongs to the transport, and a deployment can require it on
+	// the Management and Signal connections that every peer uses, however it
+	// enrolled.
+	pin, tokenSerial, module, err := collectPKCS11(ctx, cmd, client, profileID, username)
+	if err != nil {
+		return err
+	}
+	if pin != "" {
+		loginRequest.Pkcs11Pin = &pin
+	}
+	if tokenSerial != "" {
+		loginRequest.Pkcs11TokenSerial = &tokenSerial
+	}
+	if module != "" {
+		loginRequest.Pkcs11Module = &module
 	}
 
 	var loginErr error

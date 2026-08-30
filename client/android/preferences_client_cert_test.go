@@ -37,15 +37,15 @@ func TestPreferencesClientCertificateRoundTrip(t *testing.T) {
 
 	// Read through a fresh Preferences: the values have to come from the
 	// profile on disk, not from the instance that set them.
-	lido := NewPreferences(filepath.Join(dir, "netbird.json"))
-	got, err := lido.GetClientCertPath()
+	reloaded := NewPreferences(filepath.Join(dir, "netbird.json"))
+	got, err := reloaded.GetClientCertPath()
 	if err != nil {
 		t.Fatalf("GetClientCertPath: %v", err)
 	}
 	if got != cert {
 		t.Fatalf("certificate path = %q, want %q", got, cert)
 	}
-	got, err = lido.GetClientCertKeyPath()
+	got, err = reloaded.GetClientCertKeyPath()
 	if err != nil {
 		t.Fatalf("GetClientCertKeyPath: %v", err)
 	}
@@ -59,26 +59,26 @@ func TestPreferencesClientCertificateRoundTrip(t *testing.T) {
 // non-empty values only.
 func TestPreferencesClientCertificateCanBeRemoved(t *testing.T) {
 	dir := t.TempDir()
-	caminho := filepath.Join(dir, "netbird.json")
+	path := filepath.Join(dir, "netbird.json")
 
-	p := NewPreferences(caminho)
+	p := NewPreferences(path)
 	p.SetClientCertificate(filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem"))
 	if err := p.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	limpando := NewPreferences(caminho)
-	limpando.ClearClientCertificate()
-	if err := limpando.Commit(); err != nil {
+	clearing := NewPreferences(path)
+	clearing.ClearClientCertificate()
+	if err := clearing.Commit(); err != nil {
 		t.Fatalf("Commit after clear: %v", err)
 	}
 
-	depois := NewPreferences(caminho)
-	cert, err := depois.GetClientCertPath()
+	after := NewPreferences(path)
+	cert, err := after.GetClientCertPath()
 	if err != nil {
 		t.Fatalf("GetClientCertPath: %v", err)
 	}
-	key, err := depois.GetClientCertKeyPath()
+	key, err := after.GetClientCertKeyPath()
 	if err != nil {
 		t.Fatalf("GetClientCertKeyPath: %v", err)
 	}
