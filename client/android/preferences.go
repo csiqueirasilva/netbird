@@ -327,6 +327,6 @@ func (p *Preferences) SetDisableIPv6(disable bool) {
 
 // Commit writes out the changes to the config file
 func (p *Preferences) Commit() error {
-	_, err := profilemanager.UpdateOrCreateConfig(p.configInput)
+	_, err := profilemanager.UpdateOrCreateConfig(withDeviceCertificate(p.configInput))
 	return err
 }

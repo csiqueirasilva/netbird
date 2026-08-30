@@ -52,7 +52,7 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 		ManagementURL: mgmURL,
 	}
 
-	cfg, err := profilemanager.UpdateOrCreateConfig(inputCfg)
+	cfg, err := profilemanager.UpdateOrCreateConfig(withDeviceCertificate(inputCfg))
 	if err != nil {
 		return nil, err
 	}
