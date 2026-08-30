@@ -27,6 +27,21 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
+// PKCS#11 flags. Only the driver is ever named: which token, which certificate
+// and which chain are discovered when logging in.
+const (
+	pkcs11Flag       = "pkcs11"
+	pkcs11ModuleFlag = "pkcs11-module"
+
+	pkcs11Desc       = "take the client certificate from a hardware token, finding the PKCS#11 driver automatically"
+	pkcs11ModuleDesc = "path to the PKCS#11 library to use (e.g. /usr/lib/libeTPkcs11.so, C:\\Windows\\System32\\eTPKCS11.dll); implies --pkcs11"
+)
+
+var (
+	pkcs11Enabled    bool
+	pkcs11ModulePath string
+)
+
 const (
 	externalIPMapFlag        = "external-ip-map"
 	dnsResolverAddress       = "dns-resolver-address"

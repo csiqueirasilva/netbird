@@ -80,7 +80,7 @@ func TestPersistLoginOverrides(t *testing.T) {
 			require.NoError(t, err, "seed config")
 
 			activeProf := &profilemanager.ActiveProfileState{ID: "default"}
-			err = persistLoginOverrides(activeProf, tt.newMgmtURL, tt.newPSK)
+			err = persistLoginOverrides(activeProf, tt.newMgmtURL, tt.newPSK, "")
 			require.NoError(t, err, "persistLoginOverrides")
 
 			cfg, err := profilemanager.ReadConfig(profilemanager.DefaultConfigPath)

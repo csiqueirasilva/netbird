@@ -30,6 +30,8 @@ import (
 var extendSessionFlag bool
 
 func init() {
+	loginCmd.PersistentFlags().BoolVar(&pkcs11Enabled, pkcs11Flag, false, pkcs11Desc)
+	loginCmd.PersistentFlags().StringVar(&pkcs11ModulePath, pkcs11ModuleFlag, "", pkcs11ModuleDesc)
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
@@ -136,6 +138,24 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
 		loginRequest.OptionalPreSharedKey = &preSharedKey
+	}
+
+	// Asked for regardless of a setup key. The certificate is not part of the
+	// login. It belongs to the transport, and a deployment can require it on
+	// the Management and Signal connections that every peer uses, however it
+	// enrolled.
+	pin, tokenSerial, module, err := collectPKCS11(ctx, cmd, client, handle, username)
+	if err != nil {
+		return err
+	}
+	if pin != "" {
+		loginRequest.Pkcs11Pin = &pin
+	}
+	if tokenSerial != "" {
+		loginRequest.Pkcs11TokenSerial = &tokenSerial
+	}
+	if module != "" {
+		loginRequest.Pkcs11Module = &module
 	}
 
 	var loginErr error
@@ -369,7 +389,43 @@ func handleSSOLogin(ctx context.Context, cmd *cobra.Command, loginResp *proto.Lo
 	return nil
 }
 
+// unlockClientCertificate loads the client certificate from a hardware token
+// into the config, for the paths that run without a daemon.
+//
+// It asks nothing when the profile uses no token, so callers do not have to
+// test first.
+func unlockClientCertificate(cmd *cobra.Command, config *profilemanager.Config) error {
+	module, err := resolvePKCS11Module(cmd, config.PKCS11.ModulePath)
+	if err != nil || module == "" {
+		return err
+	}
+
+	config.PKCS11.ModulePath = module
+	tokenSerial, err := chooseToken(cmd, module)
+	if err != nil {
+		return err
+	}
+	pin, err := readPKCS11Pin(cmd)
+	if err != nil {
+		return err
+	}
+	if err := config.UnlockPKCS11(pin, tokenSerial); err != nil {
+		return fmt.Errorf("unlock client certificate: %v", err)
+	}
+	return nil
+}
+
 func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, setupKey string, profileID profilemanager.ID) error {
+	// Unlock before anything opens a connection. There is no daemon here, so the
+	// config was read without a PIN and its client certificate is still
+	// unloaded, and the very next call builds the Management client and asks
+	// it for the server key. A deployment that requires the certificate refuses
+	// that call, and the failure reads as a login problem rather than a missing
+	// certificate.
+	if err := unlockClientCertificate(cmd, config); err != nil {
+		return err
+	}
+
 	authClient, err := auth.NewAuth(ctx, config.PrivateKey, config.ManagementURL, config)
 	if err != nil {
 		return fmt.Errorf("failed to create auth client: %v", err)

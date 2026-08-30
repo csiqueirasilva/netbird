@@ -345,8 +345,21 @@ type LoginRequest struct {
 	DisableIpv6                   *bool   `protobuf:"varint,40,opt,name=disable_ipv6,json=disableIpv6,proto3,oneof" json:"disable_ipv6,omitempty"`
 	EnableLocalMetrics            *bool   `protobuf:"varint,41,opt,name=enable_local_metrics,json=enableLocalMetrics,proto3,oneof" json:"enable_local_metrics,omitempty"`
 	LocalMetricsAddress           *string `protobuf:"bytes,42,opt,name=local_metrics_address,json=localMetricsAddress,proto3,oneof" json:"local_metrics_address,omitempty"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	// pkcs11Pin unlocks the hardware token holding the client certificate's
+	// private key. Collected by the caller for this login only and never
+	// persisted: the profile already stores the WireGuard private key, and
+	// writing the PIN beside it would collapse the token's two factors into one.
+	Pkcs11Pin *string `protobuf:"bytes,43,opt,name=pkcs11Pin,proto3,oneof" json:"pkcs11Pin,omitempty"`
+	// pkcs11TokenSerial names the token to unlock, when more than one is plugged
+	// in. Chosen by the caller at login rather than stored, so that replacing a
+	// token does not mean editing a config file.
+	Pkcs11TokenSerial *string `protobuf:"bytes,44,opt,name=pkcs11TokenSerial,proto3,oneof" json:"pkcs11TokenSerial,omitempty"`
+	// pkcs11Module is the PKCS#11 driver to take the client certificate from.
+	// Sent when the caller discovered it, so the profile records where the driver
+	// actually is instead of requiring someone to write the path down first.
+	Pkcs11Module  *string `protobuf:"bytes,45,opt,name=pkcs11Module,proto3,oneof" json:"pkcs11Module,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LoginRequest) Reset() {
@@ -670,6 +683,27 @@ func (x *LoginRequest) GetEnableLocalMetrics() bool {
 func (x *LoginRequest) GetLocalMetricsAddress() string {
 	if x != nil && x.LocalMetricsAddress != nil {
 		return *x.LocalMetricsAddress
+	}
+	return ""
+}
+
+func (x *LoginRequest) GetPkcs11Pin() string {
+	if x != nil && x.Pkcs11Pin != nil {
+		return *x.Pkcs11Pin
+	}
+	return ""
+}
+
+func (x *LoginRequest) GetPkcs11TokenSerial() string {
+	if x != nil && x.Pkcs11TokenSerial != nil {
+		return *x.Pkcs11TokenSerial
+	}
+	return ""
+}
+
+func (x *LoginRequest) GetPkcs11Module() string {
+	if x != nil && x.Pkcs11Module != nil {
+		return *x.Pkcs11Module
 	}
 	return ""
 }
@@ -1237,8 +1271,13 @@ type GetConfigResponse struct {
 	// render the corresponding inputs as read-only and display a "managed
 	// by MDM" indicator.
 	MDMManagedFields []string `protobuf:"bytes,28,rep,name=mDMManagedFields,proto3" json:"mDMManagedFields,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// pkcs11Module is the PKCS#11 driver the active profile takes its client
+	// certificate from, empty when it uses none. The daemon has no terminal to
+	// ask on, so the caller that does uses this to enumerate the tokens plugged
+	// in and collect a PIN before logging in, rather than after a failure.
+	Pkcs11Module  string `protobuf:"bytes,29,opt,name=pkcs11Module,proto3" json:"pkcs11Module,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetConfigResponse) Reset() {
@@ -1465,6 +1504,13 @@ func (x *GetConfigResponse) GetMDMManagedFields() []string {
 		return x.MDMManagedFields
 	}
 	return nil
+}
+
+func (x *GetConfigResponse) GetPkcs11Module() string {
+	if x != nil {
+		return x.Pkcs11Module
+	}
+	return ""
 }
 
 // PeerState contains the latest state of a peer
@@ -7064,7 +7110,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\x92\x14\n" +
+	"\fEmptyRequest\"\xc6\x15\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -7111,7 +7157,10 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0esshJWTCacheTTL\x18' \x01(\x05H\x1aR\x0esshJWTCacheTTL\x88\x01\x01\x12&\n" +
 	"\fdisable_ipv6\x18( \x01(\bH\x1bR\vdisableIpv6\x88\x01\x01\x125\n" +
 	"\x14enable_local_metrics\x18) \x01(\bH\x1cR\x12enableLocalMetrics\x88\x01\x01\x127\n" +
-	"\x15local_metrics_address\x18* \x01(\tH\x1dR\x13localMetricsAddress\x88\x01\x01B\x13\n" +
+	"\x15local_metrics_address\x18* \x01(\tH\x1dR\x13localMetricsAddress\x88\x01\x01\x12!\n" +
+	"\tpkcs11Pin\x18+ \x01(\tH\x1eR\tpkcs11Pin\x88\x01\x01\x121\n" +
+	"\x11pkcs11TokenSerial\x18, \x01(\tH\x1fR\x11pkcs11TokenSerial\x88\x01\x01\x12'\n" +
+	"\fpkcs11Module\x18- \x01(\tH R\fpkcs11Module\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -7141,7 +7190,11 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0f_sshJWTCacheTTLB\x0f\n" +
 	"\r_disable_ipv6B\x17\n" +
 	"\x15_enable_local_metricsB\x18\n" +
-	"\x16_local_metrics_address\"\xb5\x01\n" +
+	"\x16_local_metrics_addressB\f\n" +
+	"\n" +
+	"_pkcs11PinB\x14\n" +
+	"\x12_pkcs11TokenSerialB\x0f\n" +
+	"\r_pkcs11Module\"\xb5\x01\n" +
 	"\rLoginResponse\x12$\n" +
 	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
 	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +
@@ -7176,7 +7229,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fDownResponse\"P\n" +
 	"\x10GetConfigRequest\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"\xaa\t\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\xce\t\n" +
 	"\x11GetConfigResponse\x12$\n" +
 	"\rmanagementUrl\x18\x01 \x01(\tR\rmanagementUrl\x12\x1e\n" +
 	"\n" +
@@ -7209,7 +7262,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0edisableSSHAuth\x18\x19 \x01(\bR\x0edisableSSHAuth\x12&\n" +
 	"\x0esshJWTCacheTTL\x18\x1a \x01(\x05R\x0esshJWTCacheTTL\x12!\n" +
 	"\fdisable_ipv6\x18\x1b \x01(\bR\vdisableIpv6\x12*\n" +
-	"\x10mDMManagedFields\x18\x1c \x03(\tR\x10mDMManagedFields\"\x92\x06\n" +
+	"\x10mDMManagedFields\x18\x1c \x03(\tR\x10mDMManagedFields\x12\"\n" +
+	"\fpkcs11Module\x18\x1d \x01(\tR\fpkcs11Module\"\x92\x06\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +

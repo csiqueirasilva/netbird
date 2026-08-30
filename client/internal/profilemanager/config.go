@@ -106,6 +106,12 @@ type ConfigInput struct {
 
 	LocalMetricsEnabled *bool
 	LocalMetricsAddress *string
+
+	// PKCS11ModulePath sets the PKCS#11 driver this profile takes its client
+	// certificate from. It is the only part of the PKCS#11 setup that is
+	// configured: which token, which certificate and which chain are all
+	// discovered at login.
+	PKCS11ModulePath string
 }
 
 // Config Configuration type
@@ -180,6 +186,11 @@ type Config struct {
 
 	// DNSRouteInterval is the interval in which the DNS routes are updated
 	DNSRouteInterval time.Duration
+	// PKCS11 keeps the client certificate's private key inside a hardware
+	// token. Mutually exclusive with ClientCertPath/ClientCertKeyPath, which
+	// require the key on disk, impossible for a non-extractable key.
+	PKCS11 PKCS11Config
+
 	// Path to a certificate used for mTLS authentication
 	ClientCertPath string
 
@@ -645,7 +656,32 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if config.ClientCertPath != "" && config.ClientCertKeyPath != "" {
+	if input.PKCS11ModulePath != "" && input.PKCS11ModulePath != config.PKCS11.ModulePath {
+		log.Infof("setting PKCS#11 module to %s", input.PKCS11ModulePath)
+		config.PKCS11.ModulePath = input.PKCS11ModulePath
+		updated = true
+	}
+
+	switch {
+	case config.PKCS11.IsSet():
+		if !config.PKCS11.HasPin() {
+			// Config gets read on paths that have nobody to ask: daemon
+			// startup, status queries, every profile listing. Leave the
+			// certificate unloaded instead of spending a token round trip and
+			// logging a failure each time. The login path supplies the PIN and
+			// calls UnlockPKCS11.
+			log.Debug("PKCS#11 client certificate configured but no PIN available yet; deferring load")
+			break
+		}
+		// Key stays in the token; only signatures leave it.
+		certificates, err := LoadPKCS11Certificates(config.PKCS11)
+		if err != nil {
+			log.Error("Failed to load mTLS certificates from PKCS#11 token: ", err)
+		} else {
+			config.ClientCertKeyPairs = certificates
+			log.Infof("Loaded %d client mTLS certificate(s) from PKCS#11 token", len(certificates))
+		}
+	case config.ClientCertPath != "" && config.ClientCertKeyPath != "":
 		cert, err := tls.LoadX509KeyPair(config.ClientCertPath, config.ClientCertKeyPath)
 		if err != nil {
 			log.Error("Failed to load mTLS cert/key pair: ", err)
