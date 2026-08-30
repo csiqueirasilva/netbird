@@ -35,6 +35,62 @@ func (p *Preferences) SetManagementURL(url string) {
 	p.configInput.ManagementURL = url
 }
 
+// SetClientCertificate points the profile at a client certificate and its
+// private key, for a deployment whose endpoints require mutual TLS. Both are
+// file paths readable by this process; the app decides where they live.
+//
+// The certificate file may hold the intermediates after the leaf, since
+// tls.LoadX509KeyPair reads every PEM block. That matters against a server that
+// trusts the root and not the intermediate, which is the usual arrangement.
+func (p *Preferences) SetClientCertificate(certPath string, keyPath string) {
+	p.configInput.ClientCertPath = certPath
+	p.configInput.ClientCertKeyPath = keyPath
+	p.configInput.CleanClientCertificate = false
+}
+
+// ClearClientCertificate removes a configured certificate on the next commit.
+//
+// It exists because setting a path is not enough on its own: apply() only takes
+// non-empty values, so without an explicit clear a credential could be
+// configured and never withdrawn.
+func (p *Preferences) ClearClientCertificate() {
+	p.configInput.ClientCertPath = ""
+	p.configInput.ClientCertKeyPath = ""
+	p.configInput.CleanClientCertificate = true
+}
+
+// GetClientCertPath reads the configured certificate path, empty when none.
+func (p *Preferences) GetClientCertPath() (string, error) {
+	if p.configInput.ClientCertPath != "" {
+		return p.configInput.ClientCertPath, nil
+	}
+	if p.configInput.CleanClientCertificate {
+		return "", nil
+	}
+
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return "", err
+	}
+	return cfg.ClientCertPath, nil
+}
+
+// GetClientCertKeyPath reads the configured private key path, empty when none.
+func (p *Preferences) GetClientCertKeyPath() (string, error) {
+	if p.configInput.ClientCertKeyPath != "" {
+		return p.configInput.ClientCertKeyPath, nil
+	}
+	if p.configInput.CleanClientCertificate {
+		return "", nil
+	}
+
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return "", err
+	}
+	return cfg.ClientCertKeyPath, nil
+}
+
 // GetAdminURL reads URL from config file
 func (p *Preferences) GetAdminURL() (string, error) {
 	if p.configInput.AdminURL != "" {
@@ -327,6 +383,6 @@ func (p *Preferences) SetDisableIPv6(disable bool) {
 
 // Commit writes out the changes to the config file
 func (p *Preferences) Commit() error {
-	_, err := profilemanager.UpdateOrCreateConfig(withDeviceCertificate(p.configInput))
+	_, err := profilemanager.UpdateOrCreateConfig(p.configInput)
 	return err
 }

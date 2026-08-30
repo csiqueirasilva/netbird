@@ -172,9 +172,9 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 
 	log.Infof("Starting client with config: %s, state: %s", cfgFile, stateFile)
 
-	cfg, err := profilemanager.UpdateOrCreateConfig(withDeviceCertificate(profilemanager.ConfigInput{
+	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: cfgFile,
-	}))
+	})
 	if err != nil {
 		return err
 	}
@@ -223,9 +223,9 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 
 	log.Infof("Starting client without login with config: %s, state: %s", cfgFile, stateFile)
 
-	cfg, err := profilemanager.UpdateOrCreateConfig(withDeviceCertificate(profilemanager.ConfigInput{
+	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: cfgFile,
-	}))
+	})
 	if err != nil {
 		return err
 	}
@@ -321,9 +321,9 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool, anonym
 	// If the engine hasn't been started, load config from disk
 	if cfg == nil {
 		var err error
-		cfg, err = profilemanager.UpdateOrCreateConfig(withDeviceCertificate(profilemanager.ConfigInput{
+		cfg, err = profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 			ConfigPath: platformFiles.ConfigurationFilePath(),
-		}))
+		})
 		if err != nil {
 			return "", fmt.Errorf("load config: %w", err)
 		}
