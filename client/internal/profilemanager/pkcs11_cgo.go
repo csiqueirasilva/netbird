@@ -3,13 +3,16 @@
 package profilemanager
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/eclipse-keypont/crypto11"
@@ -133,18 +136,173 @@ func tokenNotAnnouncedYet(err error) bool {
 // silently outlives the token it names.
 
 type pkcs11Signer struct {
-	inner   crypto.Signer
 	subject string
+	// reopen finds this same certificate's key again on the same token. It is
+	// nil when that cannot be done safely -- see makeReopener.
+	reopen func() (crypto.Signer, error)
+
+	mu    sync.Mutex
+	inner crypto.Signer
 }
 
-func (s *pkcs11Signer) Public() crypto.PublicKey { return s.inner.Public() }
+func (s *pkcs11Signer) live() crypto.Signer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inner
+}
+
+func (s *pkcs11Signer) Public() crypto.PublicKey { return s.live().Public() }
 
 func (s *pkcs11Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	sig, err := s.inner.Sign(rand, digest, opts)
-	if err != nil {
+	stale := s.live()
+	sig, err := stale.Sign(rand, digest, opts)
+	if err == nil {
+		return sig, nil
+	}
+	if s.reopen == nil || !tokenSessionLost(err) {
 		return nil, fmt.Errorf("pkcs11: signing with %q failed (token unplugged or PIN not accepted?): %w", s.subject, err)
 	}
+
+	fresh, rerr := s.reestablish(stale)
+	if rerr != nil {
+		return nil, fmt.Errorf("pkcs11: signing with %q failed (%v) and reopening the token did not work: %w", s.subject, err, rerr)
+	}
+	sig, err = fresh.Sign(rand, digest, opts)
+	if err != nil {
+		return nil, fmt.Errorf("pkcs11: signing with %q failed even after reopening the token: %w", s.subject, err)
+	}
+	log.Infof("pkcs11: reopened the session for %q after the token went away", s.subject)
 	return sig, nil
+}
+
+// reestablish swaps in a live signer, at most once per dead one.
+//
+// Every in-flight handshake fails at the same instant when the token leaves, so
+// without this each one would run its own C_Login against a token that counts
+// attempts.
+func (s *pkcs11Signer) reestablish(stale crypto.Signer) (crypto.Signer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.inner != stale {
+		// Someone else already reopened it while this caller was failing.
+		return s.inner, nil
+	}
+	fresh, err := s.reopen()
+	if err != nil {
+		return nil, err
+	}
+	s.inner = fresh
+	return fresh, nil
+}
+
+// tokenSessionLost reports whether the error means the session or the device
+// went away -- the only class worth reopening for.
+//
+// THE PIN FAILURES ARE DELIBERATELY ABSENT. Retrying those spends the token's
+// remaining attempts, and these lock themselves after a handful: an automatic
+// retry on a wrong PIN would brick the token instead of reporting a problem.
+//
+// Both shapes are checked because the wrapping is not guaranteed. crypto11 may
+// hand back the miekg pkcs11.Error itself, or a message built from it; a check
+// that only understood one shape would silently never fire, which is worse than
+// not having it -- the symptom would be identical to today's forever-loop.
+func tokenSessionLost(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var code pkcs11.Error
+	if errors.As(err, &code) {
+		switch code {
+		case pkcs11.CKR_OBJECT_HANDLE_INVALID,
+			pkcs11.CKR_SESSION_HANDLE_INVALID,
+			pkcs11.CKR_SESSION_CLOSED,
+			pkcs11.CKR_DEVICE_REMOVED,
+			pkcs11.CKR_TOKEN_NOT_PRESENT,
+			pkcs11.CKR_DEVICE_ERROR,
+			pkcs11.CKR_USER_NOT_LOGGED_IN:
+			return true
+		default:
+			return false
+		}
+	}
+
+	msg := err.Error()
+	for _, name := range []string{
+		"CKR_OBJECT_HANDLE_INVALID",
+		"CKR_SESSION_HANDLE_INVALID",
+		"CKR_SESSION_CLOSED",
+		"CKR_DEVICE_REMOVED",
+		"CKR_TOKEN_NOT_PRESENT",
+		"CKR_DEVICE_ERROR",
+		"CKR_USER_NOT_LOGGED_IN",
+	} {
+		if strings.Contains(msg, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// makeReopener returns a function that finds one certificate's key again on the
+// same token, or nil when that cannot be done safely.
+//
+// THE SERIAL IS MANDATORY, AND THIS IS NOT CAUTION. Reopening performs a
+// C_Login, and a login against the wrong token spends one of THAT token's
+// attempts. It has happened here: a command with a fixed serial sent the client
+// PIN to the CA token and burned an attempt on it. Doing that automatically, on
+// every failed signature, would turn one accident into a loop. With no known
+// serial the recovery is given up instead of guessed, which leaves the operator
+// exactly where they are today -- rerun the login by hand.
+func makeReopener(cfg PKCS11Config, serial string, leafDER []byte) func() (crypto.Signer, error) {
+	if serial == "" {
+		return nil
+	}
+	modulePath, pin := cfg.ModulePath, cfg.Pin
+
+	return func() (crypto.Signer, error) {
+		unlock := pin
+		if unlock == "" {
+			// The same variable the unattended path uses. Nothing new is kept:
+			// crypto11 holds the PIN for the life of the process either way,
+			// and the profile on disk still never sees it.
+			unlock = os.Getenv(PinEnvVar)
+		}
+		if unlock == "" {
+			return nil, fmt.Errorf("pkcs11: no PIN available to unlock token %s again", serial)
+		}
+
+		ctx, err := openTokenWithRetry(&crypto11.Config{
+			Path:        modulePath,
+			Pin:         unlock,
+			TokenSerial: serial,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("pkcs11: reopening token %s: %w", serial, err)
+		}
+
+		pairs, err := ctx.FindAllPairedCertificates()
+		if err != nil {
+			_ = ctx.Close()
+			return nil, fmt.Errorf("pkcs11: listing certificates after reopening token %s: %w", serial, err)
+		}
+		for _, pair := range pairs {
+			if pair.Leaf == nil || !bytes.Equal(pair.Leaf.Raw, leafDER) {
+				continue
+			}
+			signer, ok := pair.PrivateKey.(crypto.Signer)
+			if !ok {
+				continue
+			}
+			// The new context stays open: the signer needs it. The one from the
+			// dead session is not closed either, because the other certificates
+			// from that same load still point at it. Ceiling: one abandoned
+			// context per unplug, on a machine that unplugs a few times a day.
+			return signer, nil
+		}
+		_ = ctx.Close()
+		return nil, fmt.Errorf("pkcs11: certificate %x is no longer on token %s", leafDER[:8], serial)
+	}
 }
 
 // LoadPKCS11Certificates returns every client certificate the token holds, each
@@ -183,6 +341,17 @@ func LoadPKCS11Certificates(cfg PKCS11Config) ([]tls.Certificate, error) {
 	ctx, err := openTokenWithRetry(c11)
 	if err != nil {
 		return nil, fmt.Errorf("pkcs11: could not open token via %s: %w", cfg.ModulePath, err)
+	}
+
+	// Which token this actually is, needed by the reopen path. Only accepted
+	// when exactly one token is present: with several plugged in, the open above
+	// went by slot number, and mapping that back to a serial would be a guess --
+	// and a wrong guess here logs a PIN into the wrong device. See makeReopener.
+	serial := cfg.TokenSerial
+	if serial == "" {
+		if tokens, terr := listTokens(cfg.ModulePath, 1); terr == nil && len(tokens) == 1 {
+			serial = tokens[0].Serial
+		}
 	}
 
 	pairs, err := ctx.FindAllPairedCertificates()
@@ -233,6 +402,7 @@ func LoadPKCS11Certificates(cfg PKCS11Config) ([]tls.Certificate, error) {
 		leaf.PrivateKey = &pkcs11Signer{
 			inner:   leaf.PrivateKey.(crypto.Signer),
 			subject: leaf.Leaf.Subject.String(),
+			reopen:  makeReopener(cfg, serial, leaf.Leaf.Raw),
 		}
 		certificates = append(certificates, leaf)
 		log.Infof("pkcs11: offering client certificate %q from the token (chain of %d)",
