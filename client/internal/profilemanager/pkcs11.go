@@ -5,6 +5,8 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"sync"
+	"time"
 )
 
 // PinEnvVar names the environment variable that carries the token PIN when there
@@ -65,6 +67,48 @@ type TokenInfo struct {
 func (t TokenInfo) String() string {
 	return fmt.Sprintf("%s (serial %s, %s)", t.Label, t.Serial, t.Model)
 }
+
+// TokenPresent reports whether the module can see a token in the reader right
+// now.
+//
+// PIN-FREE BY DESIGN. It only enumerates slots, never opens a session and never
+// calls C_Login, so it is safe to ask on every reconnection attempt: nothing
+// here can touch the token's attempt counter. It answers "is there a device
+// plugged in", not "is it the right device" -- identity is settled by the TLS
+// handshake, and the reopen path pins the serial separately.
+//
+// The answer is cached briefly because the management and signal connections
+// reconnect independently and would otherwise open the PKCS#11 module twice for
+// the same question, a few times a minute, forever.
+func TokenPresent(modulePath string) bool {
+	if modulePath == "" {
+		return false
+	}
+
+	presenceMu.Lock()
+	defer presenceMu.Unlock()
+	if presenceModule == modulePath && time.Since(presenceAt) < presenceTTL {
+		return presenceValue
+	}
+
+	tokens, err := ListTokens(modulePath)
+	// An error here means the module could not be asked at all -- a missing
+	// driver, a dead pcscd. Treat it as absent: the point of asking is to avoid
+	// a connection attempt that cannot possibly succeed.
+	present := err == nil && len(tokens) > 0
+
+	presenceModule, presenceValue, presenceAt = modulePath, present, time.Now()
+	return present
+}
+
+const presenceTTL = time.Second
+
+var (
+	presenceMu     sync.Mutex
+	presenceModule string
+	presenceValue  bool
+	presenceAt     time.Time
+)
 
 // ListTokens reports the tokens plugged in right now.
 //

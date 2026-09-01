@@ -45,6 +45,13 @@ func WithSweeper(sweeper Sweeper) grpc.DialOption {
 }
 
 func dialContext(ctx context.Context, addr string) (net.Conn, error) {
+	// Before the socket, not after: a dial refused here costs the server
+	// nothing, while one refused at the handshake has already opened a
+	// connection and already been logged. See SetDialGate.
+	if err := checkDialGate(); err != nil {
+		return nil, err
+	}
+
 	if runtime.GOOS == "linux" {
 		currentUser, err := user.Current()
 		if err != nil {
