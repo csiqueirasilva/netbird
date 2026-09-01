@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/prometheus/client_golang/prometheus"
 
+	nbgrpc "github.com/netbirdio/netbird/client/grpc"
 	"github.com/netbirdio/netbird/client/internal/localmetrics"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
@@ -83,6 +84,8 @@ type Server struct {
 	// one held.
 	pkcs11Mu    sync.RWMutex
 	pkcs11Certs []tls.Certificate
+	// tokenAbsent guarda a ultima resposta da trava, so para nao repetir log.
+	tokenAbsent atomic.Bool
 
 	logFile string
 
@@ -1453,6 +1456,7 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 	}
 
 	s.restorePKCS11Certificates(config)
+	s.armDialGate(config)
 
 	return config, configExisted, nil
 }
@@ -1475,6 +1479,45 @@ func (s *Server) restorePKCS11Certificates(config *profilemanager.Config) {
 	if len(certs) > 0 {
 		config.ClientCertKeyPairs = certs
 	}
+}
+
+// errNoToken stops a dial that cannot succeed.
+var errNoToken = errors.New("pkcs11: no token in the reader; not dialing")
+
+// armDialGate keeps the daemon from dialing while the token is out.
+//
+// gRPC reconnects by itself, forever, and with the token gone every attempt
+// completes a TCP connection and starts a TLS handshake before failing. The
+// server logs each one. Measured on one workstation: 606 failed handshakes in
+// 24 hours, none of which could have succeeded. Beyond the waste, a client
+// hammering failed handshakes is indistinguishable from something worth
+// blocking, so the operator ends up whitelisting their own address -- which is
+// a bad trade, and unstable besides when that address is a dynamic one.
+//
+// The check is PIN-free (see profilemanager.TokenPresent), so asking it on every
+// attempt cannot touch the token's attempt counter.
+func (s *Server) armDialGate(config *profilemanager.Config) {
+	if config == nil || !config.PKCS11.IsSet() {
+		nbgrpc.SetDialGate(nil)
+		return
+	}
+
+	modulePath := config.PKCS11.ModulePath
+	nbgrpc.SetDialGate(func() error {
+		if profilemanager.TokenPresent(modulePath) {
+			// Swap, not Store: the transition is what is worth a line. This is
+			// called on every reconnection attempt, and the token is normally
+			// present, so logging unconditionally would be its own flood.
+			if s.tokenAbsent.Swap(false) {
+				log.Info("pkcs11: token is back in the reader, dialing again")
+			}
+			return nil
+		}
+		if !s.tokenAbsent.Swap(true) {
+			log.Warn("pkcs11: no token in the reader; not dialing until it is back")
+		}
+		return errNoToken
+	})
 }
 
 // rememberPKCS11Certificates keeps what a login unlocked, for the reads that follow.
